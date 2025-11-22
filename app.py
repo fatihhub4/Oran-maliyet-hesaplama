@@ -11,9 +11,10 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- SABİT DEĞERLER ---
-FIXED_DENSITY_ALCOHOL = 0.80  # 1 ml = 0.80 gr
-FIXED_DENSITY_WATER = 1.00    # 1 ml = 1.00 gr
+# --- SABİT DEĞERLER (DATABASE) ---
+FIXED_DENSITY_ALCOHOL = 0.80  # 1 ml = 0.80 gr kabul edildi
+FIXED_DENSITY_WATER = 1.00    # 1 ml = 1.00 gr kabul edildi
+SOURCE_ALCOHOL_DEGREE = 96.6  # Kullanılan alkolün saflık derecesi (Varsayılan)
 
 # --- CSS VE TASARIM (ŞİŞE SİMÜLASYONU DAHİL) ---
 st.markdown("""
@@ -44,18 +45,19 @@ st.markdown("""
     /* --- CSS PARFÜM ŞİŞESİ --- */
     .bottle-container {
         display: flex;
-        justify_content: center;
+        justify-content: center;
         margin-bottom: 30px;
     }
     .bottle {
         width: 120px;
         height: 180px;
-        border: 2px solid var(--text-color); /* Tema rengine uyumlu kenarlık */
+        border: 2px solid var(--text-color); 
         border-radius: 15px 15px 5px 5px;
         position: relative;
         overflow: hidden;
         background-color: rgba(255,255,255,0.05);
         box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        transition: border-color 0.5s; 
     }
     /* Şişe Kapağı */
     .bottle::before {
@@ -71,7 +73,7 @@ st.markdown("""
     /* Sıvı Katmanları */
     .liquid-alcohol {
         width: 100%;
-        background-color: #E0E0E0; /* Gri */
+        background-color: #BDBDBD; /* Gri */
         transition: height 0.5s ease;
     }
     .liquid-water {
@@ -88,7 +90,7 @@ st.markdown("""
     /* Lejant (Açıklama) */
     .legend-box {
         display: flex;
-        justify_content: center;
+        justify-content: center;
         gap: 15px;
         font-size: 0.8rem;
         margin-bottom: 20px;
@@ -114,53 +116,55 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- PDF FONKSİYONU ---
-def create_pdf(vol, mass, data):
+def create_pdf(vol, mass, data, final_alc_degree):
     pdf = FPDF()
     pdf.add_page()
     
     # Başlık
-    pdf.set_font("Arial", 'B', 20)
-    pdf.cell(0, 15, "PRO LAB RECETE", 0, 1, 'C')
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 15, "PRO LAB RECETESI", 0, 1, 'C')
     pdf.set_font("Arial", '', 10)
     pdf.cell(0, 10, f"Tarih: {datetime.now().strftime('%d.%m.%Y %H:%M')}", 0, 1, 'C')
     pdf.ln(10)
     
     # Özet
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, f"HEDEF HACIM: {vol} ML", 0, 1, 'C')
-    pdf.cell(0, 10, f"TOPLAM KUTLE: {mass:.2f} GR", 0, 1, 'C')
+    pdf.cell(0, 10, f"HEDEF HACIM: {vol} ML  |  TOPLAM KUTLE: {mass:.2f} GR", 0, 1, 'C')
+    pdf.cell(0, 10, f"FINAL ALKOL DERECESI: {final_alc_degree:.2f}°", 0, 1, 'C')
     pdf.ln(10)
     
     # Tablo Başlıkları
     pdf.set_fill_color(240, 240, 240)
     pdf.set_font("Arial", 'B', 10)
     pdf.cell(60, 10, "BILESEN", 1, 0, 'L', 1)
-    pdf.cell(45, 10, "MIKTAR", 1, 0, 'C', 1)
-    pdf.cell(45, 10, "ORAN", 1, 1, 'C', 1)
+    pdf.cell(40, 10, "MIKTAR", 1, 0, 'C', 1)
+    pdf.cell(40, 10, "ORAN", 1, 1, 'C', 1)
     
     # İçerik
     pdf.set_font("Arial", '', 10)
     for item in data:
-        pdf.cell(60, 10, item['name'], 1)
-        # Miktarı birimine göre yaz (Gr veya Ml)
+        # Birim Düzeltmesi (Esans: GR, Diğerleri: ML)
         unit = "Gr" if item['name'] == "ESANS" else "Ml"
         val = item['mass'] if unit == "Gr" else item['vol']
         
-        pdf.cell(45, 10, f"{val:.2f} {unit}", 1, 0, 'C')
-        pdf.cell(45, 10, f"%{item['pct']:.1f}", 1, 1, 'C')
+        pdf.cell(60, 10, item['name'], 1)
+        pdf.cell(40, 10, f"{val:.2f} {unit}", 1, 0, 'C')
+        pdf.cell(40, 10, f"%{item['pct']:.1f}", 1, 1, 'C')
+        pdf.ln()
         
     return pdf.output(dest='S').encode('latin-1', 'replace')
 
 # --- HTML ŞİŞE ÇİZİM FONKSİYONU ---
 def render_bottle(e_pct, w_pct, a_pct):
-    # Oranları CSS yüksekliğine çevir
+    # Yüzdelerin Toplamı %100'ü geçmeyeceği garanti
     h_ess = e_pct
     h_wat = w_pct
     h_alc = a_pct
     
-    # Boşluk kalırsa diye (örn: %90 doluluk) üstünü boş bırakır
+    # Boşluk
     h_empty = 100 - (h_ess + h_wat + h_alc)
-    
+    if h_empty < 0: h_empty = 0
+
     html = f"""
     <div class="bottle-container">
         <div class="bottle">
@@ -171,95 +175,113 @@ def render_bottle(e_pct, w_pct, a_pct):
         </div>
     </div>
     <div class="legend-box">
-        <span><span class="dot" style="background-color: #E0E0E0;"></span>Alkol</span>
-        <span><span class="dot" style="background-color: #81D4FA;"></span>Su</span>
         <span><span class="dot" style="background-color: #FFD700;"></span>Esans</span>
+        <span><span class="dot" style="background-color: #81D4FA;"></span>Su</span>
+        <span><span class="dot" style="background-color: #BDBDBD;"></span>Alkol</span>
     </div>
     """
     st.markdown(html, unsafe_allow_html=True)
 
 # --- UYGULAMA GÖVDESİ ---
 st.markdown('<div class="main-title">PRO LAB</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">KÜTLESEL FORMÜLASYON</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">KÜTLESEL HESAPLAYICI</div>', unsafe_allow_html=True)
 
 # Sekmeler
 tab1, tab2 = st.tabs(["REÇETE", "MALİYET"])
 
 # --- SEKME 1: REÇETE ---
 with tab1:
-    # Girdiler
-    col_L, col_R = st.columns([1, 1])
+    # 1. Girdiler
+    col_L, col_R = st.columns(2)
     
     with col_L:
-        target_vol = st.number_input("Şişe Hacmi (ML)", value=100, step=10)
-        essence_dens = st.number_input("Esans Yoğunluğu", value=0.98, step=0.01, format="%.2f")
+        target_vol = st.number_input("Şişe Hacmi (ML)", value=100, step=10, key="v1")
+        # Esans yoğunluğu varsayılan 0.98 ve değiştirilebilir
+        essence_dens = st.number_input("Esans Yoğunluğu (gr/ml)", value=0.98, step=0.01, format="%.2f", key="d1")
         
     with col_R:
-        essence_pct = st.number_input("Esans Oranı (%)", value=20.0, step=0.5, format="%.1f")
-        water_pct = st.number_input("Su Oranı (%)", value=0.0, step=0.5, format="%.1f")
+        essence_pct = st.number_input("Esans Oranı (%)", value=20.0, step=0.5, format="%.1f", key="p1")
+        water_pct = st.number_input("Saf Su Oranı (%)", value=0.0, step=0.5, format="%.1f", key="p2")
 
-    # Hesaplama
+    # Alkol Hesaplama
     alcohol_pct = 100 - (essence_pct + water_pct)
     
     if alcohol_pct < 0:
-        st.error("⚠️ Oran hatası: %100'ü aşıyor!")
+        st.error("⚠️ Hata: Oranlar toplamı %100'ü geçiyor!")
     else:
         st.markdown("---")
         
-        # 1. Şişe Görseli (Ortada)
-        render_bottle(essence_pct, water_pct, alcohol_pct)
-        
-        # 2. Matematik
-        # Hacimler
+        # 1. Matematik
+        # Hacimler (ML)
         v_ess = target_vol * (essence_pct / 100)
         v_wat = target_vol * (water_pct / 100)
         v_alc = target_vol * (alcohol_pct / 100)
         
-        # Kütleler
+        # Kütleler (GR)
         m_ess = v_ess * essence_dens
         m_wat = v_wat * FIXED_DENSITY_WATER
         m_alc = v_alc * FIXED_DENSITY_ALCOHOL
         
         total_mass = m_ess + m_wat + m_alc
         
-        # 3. Sonuçlar (İstediğin Format: Esans GR, Diğerleri ML)
-        c1, c2, c3 = st.columns(3)
-        c1.metric("ESANS", f"{m_ess:.2f} gr")
-        c2.metric("SU", f"{v_wat:.1f} ml")
-        c3.metric("ALKOL", f"{v_alc:.1f} ml")
+        # 2. ALKOL DERECESİ HESAPLAMA (YENİ EKLENEN KISIM)
+        final_alc_degree = (v_alc / target_vol) * SOURCE_ALCOHOL_DEGREE
         
-        st.info(f"⚖️ **TOPLAM KÜTLE:** {total_mass:.2f} Gram")
+        # 3. Şişe Görseli
+        render_bottle(essence_pct, water_pct, alcohol_pct)
         
-        # PDF İndirme
+        # 4. Sonuçlar
+        st.markdown("### 📋 Reçete Detayı")
+        
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("ESANS", f"{m_ess:.2f} gr") 
+        k2.metric("SU", f"{v_wat:.1f} ml")    
+        k3.metric("ALKOL", f"{v_alc:.1f} ml") 
+        k4.metric("FINAL ALKOL", f"{final_alc_degree:.2f}°") # Yeni Metrik
+        
+        st.info(f"⚖️ **TOPLAM KÜTLE:** {total_mass:.2f} Gram (Tam {target_vol} ML Şişe)")
+        
+        # 5. PDF İndirme
         export_list = [
-            {'name': 'ESANS', 'mass': m_ess, 'vol': v_ess, 'pct': essence_pct}, # Esans Gr önemli
-            {'name': 'SAF SU', 'mass': m_wat, 'vol': v_wat, 'pct': water_pct},  # Su Ml önemli
-            {'name': 'ALKOL', 'mass': m_alc, 'vol': v_alc, 'pct': alcohol_pct}  # Alkol Ml önemli
+            {'name': 'ESANS', 'mass': m_ess, 'vol': v_ess, 'pct': essence_pct},
+            {'name': 'SAF SU', 'mass': m_wat, 'vol': v_wat, 'pct': water_pct},
+            {'name': 'ALKOL', 'mass': m_alc, 'vol': v_alc, 'pct': alcohol_pct}
         ]
-        pdf_data = create_pdf(target_vol, total_mass, export_list)
-        st.download_button("Reçeteyi İndir (PDF)", pdf_data, file_name="prolab_recete.pdf", mime="application/pdf", use_container_width=True)
+        pdf_data = create_pdf(target_vol, total_mass, export_list, final_alc_degree)
+        st.download_button("📥 Reçeteyi İndir (PDF)", pdf_data, file_name="prolab_recete.pdf", mime="application/pdf", use_container_width=True)
 
 # --- SEKME 2: MALİYET ---
 with tab2:
-    st.caption("Birim fiyatları girerek maliyeti hesaplayın.")
+    st.caption("Birim fiyatları girerek sıvı maliyetini hesaplayın.")
     
-    c_m1, c_m2 = st.columns(2)
-    with c_m1:
-        u_ess = st.number_input("Esans (Gr)", value=0.0, step=1.0)
-        u_wat = st.number_input("Su (Ml)", value=0.0, step=1.0)
-        u_alc = st.number_input("Alkol (Ml)", value=0.0, step=1.0)
+    col_miktarlar, col_fiyatlar = st.columns(2)
+    with col_miktarlar:
+        st.markdown("**Kullanılan Miktarlar**")
+        u_ess = st.number_input("Esans (Gr)", value=0.0, step=1.0, key="ugr")
+        u_wat = st.number_input("Su (Ml)", value=0.0, step=1.0, key="uwml")
+        u_alc = st.number_input("Alkol (Ml)", value=0.0, step=1.0, key="uaml")
     
-    with c_m2:
-        p_ess = st.number_input("Esans Fiyatı (TL/Gr)", value=0.0, step=0.5)
-        p_wat = st.number_input("Su Fiyatı (TL/Lt)", value=0.0, step=1.0)
-        p_alc = st.number_input("Alkol Fiyatı (TL/Lt)", value=0.0, step=10.0)
+    with col_fiyatlar:
+        st.markdown("**Birim Fiyatlar**")
+        p_ess = st.number_input("Esans (TL / 1 Gr)", value=0.0, step=0.5, key="pgr")
+        p_wat = st.number_input("Su (TL / 1 Litre)", value=0.0, step=1.0, key="plt_w")
+        p_alc = st.number_input("Alkol (TL / 1 Litre)", value=0.0, step=10.0, key="plt_a")
         
-    cost_total = (u_ess * p_ess) + ((u_wat/1000)*p_wat) + ((u_alc/1000)*p_alc)
+    # Hesaplama: (Miktar x Birim Fiyat)
+    cost_e = u_ess * p_ess
+    cost_w = (u_wat / 1000) * p_wat 
+    cost_a = (u_alc / 1000) * p_alc 
+    total_cost = cost_e + cost_w + cost_a
     
     st.divider()
-    if cost_total > 0:
-        st.success(f"💰 **SIVI MALİYETİ:** {cost_total:.2f} TL")
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Esans Tutarı", f"{cost_e:.2f} TL")
+    c2.metric("Su Tutarı", f"{cost_w:.2f} TL")
+    c3.metric("Alkol Tutarı", f"{cost_a:.2f} TL")
+    
+    if total_cost > 0:
+        st.success(f"💰 **SIVI MALİYETİ:** {total_cost:.2f} TL")
     else:
-        st.warning("Lütfen miktar ve fiyat giriniz.")
-
+        st.warning("Maliyet hesaplaması için miktar ve fiyat giriniz.")
 
