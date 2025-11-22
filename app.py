@@ -12,7 +12,6 @@ st.set_page_config(
 )
 
 # --- 2. SESSION STATE (HAFIZA) ---
-# İsim alanı da eklendi ('perfume_name')
 defaults = {
     "perfume_name": "",
     "target_vol": 100,
@@ -60,12 +59,22 @@ st.markdown("""
         letter-spacing: 1px;
     }
 
-    /* Parfüm Adı Giriş Kutusu */
+    /* --- DÜZELTİLEN KISIM: GİRİŞ KUTUSU --- */
+    /* Artık tema rengine uyumlu */
     div[data-testid="stTextInput"] input {
         font-weight: bold;
         font-size: 1.1rem;
         text-align: center;
-        color: #333;
+        color: var(--text-color) !important; /* Temaya göre otomatik renk */
+        background-color: rgba(128, 128, 128, 0.1) !important; /* Hafif belirgin arka plan */
+        border: 1px solid rgba(128, 128, 128, 0.2) !important;
+        border-radius: 8px;
+    }
+    
+    /* Placeholder (İpucu) Rengi */
+    div[data-testid="stTextInput"] input::placeholder {
+        color: var(--text-color);
+        opacity: 0.5;
     }
 
     /* --- DİNAMİK PARFÜM ŞİŞESİ --- */
@@ -114,32 +123,28 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 5. PDF FONKSİYONU (İSİM EKLENDİ) ---
+# --- 5. PDF FONKSİYONU ---
 def create_pdf(vol, mass, data, degree, name_tag):
     pdf = FPDF()
     pdf.add_page()
     
-    # Logo / Başlık
     pdf.set_font("Arial", 'B', 20)
     pdf.cell(0, 15, "PRO LAB RECETESI", 0, 1, 'C')
     
-    # Eğer isim girildiyse altına yaz
     if name_tag:
-        pdf.set_font("Arial", 'I', 14) # İtalik ve büyük
+        pdf.set_font("Arial", 'I', 14)
         pdf.set_text_color(80, 80, 80)
         pdf.cell(0, 10, f"{name_tag}", 0, 1, 'C')
-        pdf.set_text_color(0, 0, 0) # Siyaha dön
+        pdf.set_text_color(0, 0, 0)
     
     pdf.set_font("Arial", '', 10)
     pdf.cell(0, 10, f"Tarih: {datetime.now().strftime('%d.%m.%Y %H:%M')}", 0, 1, 'C')
     pdf.ln(10)
     
-    # Bilgi Kutusu
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, f"HEDEF: {vol} ML | KUTLE: {mass:.2f} GR | ALKOL: {degree:.1f} Derece", 0, 1, 'C')
     pdf.ln(10)
     
-    # Tablo
     pdf.set_fill_color(240, 240, 240)
     pdf.set_font("Arial", 'B', 10)
     pdf.cell(60, 10, "BILESEN", 1, 0, 'L', 1)
@@ -155,7 +160,6 @@ def create_pdf(vol, mass, data, degree, name_tag):
         pdf.cell(40, 10, f"%{item['pct']:.1f}", 1, 1, 'C')
         pdf.ln()
         
-    # Alt Bilgi
     if name_tag:
         pdf.set_y(-30)
         pdf.set_font("Arial", 'I', 8)
@@ -191,15 +195,12 @@ st.markdown('<div class="sub-title">KÜTLESEL HESAPLAYICI</div>', unsafe_allow_h
 tab1, tab2 = st.tabs(["REÇETE & ORANLAR", "MALİYET HESABI"])
 
 with tab1:
-    # --- YENİ: PARFÜM ADI GİRİŞİ ---
-    # En tepeye, dikkat çekici ama sade bir giriş alanı
     st.text_input("PROJE / PARFÜM ADI", 
                   placeholder="Örn: Louis Vuitton Imagination Muadili - MG Gülçiçek", 
                   key="perfume_name")
     
     st.markdown("---")
 
-    # Girdiler
     c1, c2 = st.columns(2)
     with c1:
         t_vol = st.number_input("Şişe Hacmi (ML)", step=10, key="target_vol")
@@ -208,7 +209,6 @@ with tab1:
         e_pct = st.number_input("Esans Oranı (%)", step=0.5, format="%.1f", key="essence_pct")
         w_pct = st.number_input("Su Oranı (%)", step=0.5, format="%.1f", key="water_pct")
 
-    # Hesaplama
     a_pct = 100 - (e_pct + w_pct)
     
     if a_pct < 0:
@@ -225,10 +225,8 @@ with tab1:
         
         final_degree = (v_a / t_vol) * SOURCE_ALCOHOL_DEGREE if t_vol > 0 else 0
 
-        # Şişe Görseli
         render_bottle(e_pct, w_pct, a_pct)
         
-        # Sonuçlar
         st.markdown("### 📋 Reçete Detayı")
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("ESANS", f"{m_e:.2f} gr")
@@ -238,18 +236,15 @@ with tab1:
         
         st.info(f"⚖️ **TOPLAM KÜTLE:** {total_mass:.2f} Gram")
         
-        # PDF (İsim Değişkeniyle)
         export_data = [
             {'name': 'ESANS', 'mass': m_e, 'vol': v_e, 'pct': e_pct},
             {'name': 'SAF SU', 'mass': m_w, 'vol': v_w, 'pct': w_pct},
             {'name': 'ALKOL', 'mass': m_a, 'vol': v_a, 'pct': a_pct}
         ]
-        # Session state'den ismi çekiyoruz
         p_name_val = st.session_state.perfume_name
         
         pdf_val = create_pdf(t_vol, total_mass, export_data, final_degree, p_name_val)
         
-        # Buton metnini dinamik yapalım
         btn_label = f"📥 Reçeteyi İndir ({p_name_val})" if p_name_val else "📥 Reçeteyi İndir"
         
         st.download_button(btn_label, pdf_val, file_name="prolab_recete.pdf", mime="application/pdf", use_container_width=True)
